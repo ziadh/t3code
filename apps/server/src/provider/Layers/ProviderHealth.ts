@@ -25,6 +25,7 @@ import { ProviderHealth, type ProviderHealthShape } from "../Services/ProviderHe
 
 const DEFAULT_TIMEOUT_MS = 4_000;
 const CODEX_PROVIDER = "codex" as const;
+const OPENROUTER_PROVIDER = "openrouter" as const;
 
 // ── Pure helpers ────────────────────────────────────────────────────
 
@@ -307,18 +308,49 @@ export const checkCodexProviderStatus: Effect.Effect<
   } satisfies ServerProviderStatus;
 });
 
+export const checkOpenRouterProviderStatus: Effect.Effect<ServerProviderStatus> = Effect.sync(() => {
+  const checkedAt = new Date().toISOString();
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) {
+    return {
+      provider: OPENROUTER_PROVIDER,
+      status: "error" as const,
+      available: false,
+      authStatus: "unauthenticated" as const,
+      checkedAt,
+      message: "OpenRouter is unavailable. Set `OPENROUTER_API_KEY` and restart.",
+    } satisfies ServerProviderStatus;
+  }
+  return {
+    provider: OPENROUTER_PROVIDER,
+    status: "ready" as const,
+    available: true,
+    authStatus: "authenticated" as const,
+    checkedAt,
+  } satisfies ServerProviderStatus;
+});
+
 // ── Layer ───────────────────────────────────────────────────────────
 
 export const ProviderHealthLive = Layer.effect(
   ProviderHealth,
   Effect.gen(function* () {
     const codexStatusFiber = yield* checkCodexProviderStatus.pipe(
-      Effect.map(Array.of),
+      Effect.map((status) => [status] as const),
+      Effect.forkScoped,
+    );
+    const openRouterStatusFiber = yield* checkOpenRouterProviderStatus.pipe(
+      Effect.map((status) => [status] as const),
       Effect.forkScoped,
     );
 
     return {
-      getStatuses: Fiber.join(codexStatusFiber),
+      getStatuses: Effect.all([Fiber.join(codexStatusFiber), Fiber.join(openRouterStatusFiber)]).pipe(
+        Effect.map(([codexStatuses, openRouterStatuses]) => [
+          ...codexStatuses,
+          ...openRouterStatuses,
+        ]),
+      ),
     } satisfies ProviderHealthShape;
   }),
 );

@@ -214,9 +214,14 @@ const make = Effect.gen(function* () {
     }
 
     const desiredRuntimeMode = thread.runtimeMode;
-    const currentProvider: ProviderKind | undefined =
-      thread.session?.providerName === "codex" ? thread.session.providerName : undefined;
-    const preferredProvider: ProviderKind | undefined = options?.provider ?? currentProvider;
+    const currentProvider = (() => {
+      const providerName = thread.session?.providerName;
+      return providerName === "codex" || providerName === "openrouter"
+        ? providerName
+        : undefined;
+    })();
+    const preferredProvider: ProviderKind | undefined =
+      options?.provider ?? currentProvider ?? thread.provider;
     const desiredModel = options?.model ?? thread.model;
     const effectiveCwd = resolveThreadWorkspaceCwd({
       thread,

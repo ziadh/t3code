@@ -3,8 +3,12 @@ import { Schema } from "effect";
 
 import { ProviderSendTurnInput, ProviderSessionStartInput } from "./provider";
 
-const decodeProviderSessionStartInput = Schema.decodeUnknownSync(ProviderSessionStartInput);
-const decodeProviderSendTurnInput = Schema.decodeUnknownSync(ProviderSendTurnInput);
+const decodeProviderSessionStartInput = Schema.decodeUnknownSync(
+  ProviderSessionStartInput as never,
+) as (input: unknown) => typeof ProviderSessionStartInput.Type;
+const decodeProviderSendTurnInput = Schema.decodeUnknownSync(ProviderSendTurnInput as never) as (
+  input: unknown,
+) => typeof ProviderSendTurnInput.Type;
 
 describe("ProviderSessionStartInput", () => {
   it("accepts codex-compatible payloads", () => {

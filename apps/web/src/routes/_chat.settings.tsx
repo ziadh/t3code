@@ -47,6 +47,13 @@ const MODEL_PROVIDER_SETTINGS: Array<{
     placeholder: "your-codex-model-slug",
     example: "gpt-6.7-codex-ultra-preview",
   },
+  {
+    provider: "openrouter",
+    title: "OpenRouter",
+    description: "Save additional OpenRouter model slugs for the picker and `/model` command.",
+    placeholder: "provider/model-slug",
+    example: "anthropic/claude-3.7-sonnet",
+  },
 ] as const;
 
 function getCustomModelsForProvider(
@@ -55,6 +62,9 @@ function getCustomModelsForProvider(
 ) {
   switch (provider) {
     case "codex":
+      return settings.customCodexModels;
+    case "openrouter":
+      return settings.customOpenRouterModels;
     default:
       return settings.customCodexModels;
   }
@@ -66,6 +76,9 @@ function getDefaultCustomModelsForProvider(
 ) {
   switch (provider) {
     case "codex":
+      return defaults.customCodexModels;
+    case "openrouter":
+      return defaults.customOpenRouterModels;
     default:
       return defaults.customCodexModels;
   }
@@ -74,6 +87,9 @@ function getDefaultCustomModelsForProvider(
 function patchCustomModels(provider: ProviderKind, models: string[]) {
   switch (provider) {
     case "codex":
+      return { customCodexModels: models };
+    case "openrouter":
+      return { customOpenRouterModels: models };
     default:
       return { customCodexModels: models };
   }
@@ -89,6 +105,7 @@ function SettingsRouteView() {
     Record<ProviderKind, string>
   >({
     codex: "",
+    openrouter: "",
   });
   const [customModelErrorByProvider, setCustomModelErrorByProvider] = useState<
     Partial<Record<ProviderKind, string | null>>

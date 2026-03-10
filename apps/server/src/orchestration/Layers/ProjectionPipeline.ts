@@ -364,6 +364,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             projectId: event.payload.projectId,
             title: event.payload.title,
             workspaceRoot: event.payload.workspaceRoot,
+            defaultProvider: event.payload.defaultProvider,
             defaultModel: event.payload.defaultModel,
             scripts: event.payload.scripts,
             createdAt: event.payload.createdAt,
@@ -384,6 +385,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
             ...(event.payload.workspaceRoot !== undefined
               ? { workspaceRoot: event.payload.workspaceRoot }
+              : {}),
+            ...(event.payload.defaultProvider !== undefined
+              ? { defaultProvider: event.payload.defaultProvider }
               : {}),
             ...(event.payload.defaultModel !== undefined
               ? { defaultModel: event.payload.defaultModel }
@@ -422,6 +426,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             threadId: event.payload.threadId,
             projectId: event.payload.projectId,
             title: event.payload.title,
+            provider: event.payload.provider,
             model: event.payload.model,
             runtimeMode: event.payload.runtimeMode,
             interactionMode: event.payload.interactionMode,
@@ -444,6 +449,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
+            ...(event.payload.provider !== undefined ? { provider: event.payload.provider } : {}),
             ...(event.payload.model !== undefined ? { model: event.payload.model } : {}),
             ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
             ...(event.payload.worktreePath !== undefined

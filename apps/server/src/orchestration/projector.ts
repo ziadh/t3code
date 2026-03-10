@@ -181,6 +181,7 @@ export function projectEvent(
             id: payload.projectId,
             title: payload.title,
             workspaceRoot: payload.workspaceRoot,
+            defaultProvider: payload.defaultProvider,
             defaultModel: payload.defaultModel,
             scripts: payload.scripts,
             createdAt: payload.createdAt,
@@ -210,6 +211,9 @@ export function projectEvent(
                   ...(payload.title !== undefined ? { title: payload.title } : {}),
                   ...(payload.workspaceRoot !== undefined
                     ? { workspaceRoot: payload.workspaceRoot }
+                    : {}),
+                  ...(payload.defaultProvider !== undefined
+                    ? { defaultProvider: payload.defaultProvider }
                     : {}),
                   ...(payload.defaultModel !== undefined
                     ? { defaultModel: payload.defaultModel }
@@ -252,6 +256,7 @@ export function projectEvent(
             id: payload.threadId,
             projectId: payload.projectId,
             title: payload.title,
+            provider: payload.provider,
             model: payload.model,
             runtimeMode: payload.runtimeMode,
             interactionMode: payload.interactionMode,
@@ -295,6 +300,7 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             ...(payload.title !== undefined ? { title: payload.title } : {}),
+            ...(payload.provider !== undefined ? { provider: payload.provider } : {}),
             ...(payload.model !== undefined ? { model: payload.model } : {}),
             ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
             ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),

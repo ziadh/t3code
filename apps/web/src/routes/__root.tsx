@@ -252,7 +252,11 @@ function EventRouter() {
       })().catch(() => undefined);
     });
     const unsubServerConfigUpdated = onServerConfigUpdated((payload) => {
-      const signature = JSON.stringify(payload.issues);
+      const signature = JSON.stringify({
+        issues: payload.issues,
+        providers: payload.providers,
+        providerCatalogs: payload.providerCatalogs,
+      });
       if (lastConfigIssuesSignatureRef.current === signature) {
         return;
       }

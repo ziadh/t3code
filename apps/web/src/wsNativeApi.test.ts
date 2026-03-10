@@ -73,6 +73,10 @@ const defaultProviders: ReadonlyArray<ServerProviderStatus> = [
     checkedAt: "2026-01-01T00:00:00.000Z",
   },
 ];
+const defaultProviderCatalogs = {
+  codex: [],
+  openrouter: [],
+} as const;
 
 beforeEach(() => {
   vi.resetModules();
@@ -175,6 +179,7 @@ describe("wsNativeApi", () => {
         },
       ],
       providers: defaultProviders,
+      providerCatalogs: defaultProviderCatalogs,
     } as const;
     emitPush(WS_CHANNELS.serverConfigUpdated, payload);
 
@@ -199,16 +204,19 @@ describe("wsNativeApi", () => {
     emitPush(WS_CHANNELS.serverConfigUpdated, {
       issues: [{ kind: "keybindings.invalid-entry", message: "missing index" }],
       providers: defaultProviders,
+      providerCatalogs: defaultProviderCatalogs,
     });
     emitPush(WS_CHANNELS.serverConfigUpdated, {
       issues: [{ kind: "keybindings.malformed-config", message: "bad json" }],
       providers: defaultProviders,
+      providerCatalogs: defaultProviderCatalogs,
     });
 
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener).toHaveBeenCalledWith({
       issues: [{ kind: "keybindings.malformed-config", message: "bad json" }],
       providers: defaultProviders,
+      providerCatalogs: defaultProviderCatalogs,
     });
     expect(warnSpy).toHaveBeenCalledTimes(1);
   });

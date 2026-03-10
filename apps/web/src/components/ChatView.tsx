@@ -323,6 +323,7 @@ function buildExpandedImagePreview(
 function buildLocalDraftThread(
   threadId: ThreadId,
   draftThread: DraftThreadState,
+  fallbackProvider: ProviderKind,
   fallbackModel: string,
   error: string | null,
 ): Thread {
@@ -331,6 +332,7 @@ function buildLocalDraftThread(
     codexThreadId: null,
     projectId: draftThread.projectId,
     title: "New thread",
+    provider: fallbackProvider,
     model: fallbackModel,
     runtimeMode: draftThread.runtimeMode,
     interactionMode: draftThread.interactionMode,
@@ -730,11 +732,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
         ? buildLocalDraftThread(
             threadId,
             draftThread,
+            fallbackDraftProject?.provider ?? "codex",
             fallbackDraftProject?.model ?? DEFAULT_MODEL_BY_PROVIDER.codex,
             localDraftError,
           )
         : undefined,
-    [draftThread, fallbackDraftProject?.model, localDraftError, threadId],
+    [draftThread, fallbackDraftProject?.model, fallbackDraftProject?.provider, localDraftError, threadId],
   );
   const activeThread = serverThread ?? localDraftThread;
   const runtimeMode =
@@ -776,14 +779,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
       activeThread.session !== null),
   );
   const lockedProvider: ProviderKind | null = hasThreadStarted
-    ? (sessionProvider ?? selectedProviderByThreadId ?? null)
+    ? (sessionProvider ?? activeThread?.provider ?? selectedProviderByThreadId ?? null)
     : null;
-  const selectedProvider: ProviderKind = lockedProvider ?? selectedProviderByThreadId ?? "codex";
+  const selectedProvider: ProviderKind =
+    lockedProvider ?? selectedProviderByThreadId ?? activeThread?.provider ?? "codex";
   const baseThreadModel = resolveModelSlugForProvider(
     selectedProvider,
     activeThread?.model ?? activeProject?.model ?? getDefaultModel(selectedProvider),
   );
-  const customModelsForSelectedProvider = settings.customCodexModels;
+  const customModelsForSelectedProvider =
+    selectedProvider === "openrouter"
+      ? settings.customOpenRouterModels
+      : settings.customCodexModels;
   const selectedModel = useMemo(() => {
     const draftModel = composerDraft.model;
     if (!draftModel) {
@@ -821,11 +828,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
       },
     };
   }, [settings.codexBinaryPath, settings.codexHomePath]);
-  const selectedModelForPicker = selectedModel;
+  const serverConfigQuery = useQuery(serverConfigQueryOptions());
+  const providerCatalogs = serverConfigQuery.data?.providerCatalogs;
   const modelOptionsByProvider = useMemo(
-    () => getCustomModelOptionsByProvider(settings),
-    [settings],
+    () => getCustomModelOptionsByProvider(settings, providerCatalogs),
+    [providerCatalogs, settings],
   );
+  const selectedModelForPicker = selectedModel;
   const selectedModelForPickerWithCustomFallback = useMemo(() => {
     const currentOptions = modelOptionsByProvider[selectedProvider];
     return currentOptions.some((option) => option.slug === selectedModelForPicker)
@@ -1172,7 +1181,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const effectivePathQuery = pathTriggerQuery.length > 0 ? debouncedPathQuery : "";
   const branchesQuery = useQuery(gitBranchesQueryOptions(gitCwd));
-  const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const workspaceEntriesQuery = useQuery(
     projectSearchEntriesQueryOptions({
       cwd: gitCwd,
@@ -1263,7 +1271,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const keybindings = serverConfigQuery.data?.keybindings ?? EMPTY_KEYBINDINGS;
   const availableEditors = serverConfigQuery.data?.availableEditors ?? EMPTY_AVAILABLE_EDITORS;
   const providerStatuses = serverConfigQuery.data?.providers ?? EMPTY_PROVIDER_STATUSES;
-  const activeProvider = activeThread?.session?.provider ?? "codex";
+  const activeProvider = activeThread?.session?.provider ?? activeThread?.provider ?? "codex";
   const activeProviderStatus = useMemo(
     () => providerStatuses.find((status) => status.provider === activeProvider) ?? null,
     [activeProvider, providerStatuses],
@@ -5547,16 +5555,44 @@ const COMING_SOON_PROVIDER_OPTIONS = [
   { id: "gemini", label: "Gemini", icon: Gemini },
 ] as const;
 
-function getCustomModelOptionsByProvider(settings: {
-  customCodexModels: readonly string[];
-}): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
+function getCustomModelOptionsByProvider(
+  settings: {
+    customCodexModels: readonly string[];
+    customOpenRouterModels: readonly string[];
+  },
+  providerCatalogs?: {
+    codex: ReadonlyArray<{ slug: string; name: string }>;
+    openrouter: ReadonlyArray<{ slug: string; name: string }>;
+  },
+): Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>> {
+  const mergeOptions = (
+    base: ReadonlyArray<{ slug: string; name: string }>,
+    extra: ReadonlyArray<{ slug: string; name: string }> | undefined,
+  ) => {
+    const merged = [...base];
+    const seen = new Set(merged.map((option) => option.slug));
+    for (const option of extra ?? []) {
+      if (seen.has(option.slug)) {
+        continue;
+      }
+      seen.add(option.slug);
+      merged.push({ slug: option.slug, name: option.name });
+    }
+    return merged;
+  };
+
   return {
-    codex: getAppModelOptions("codex", settings.customCodexModels),
+    codex: mergeOptions(getAppModelOptions("codex", settings.customCodexModels), providerCatalogs?.codex),
+    openrouter: mergeOptions(
+      getAppModelOptions("openrouter", settings.customOpenRouterModels),
+      providerCatalogs?.openrouter,
+    ),
   };
 }
 
 const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   codex: OpenAI,
+  openrouter: OpenAI,
   claudeCode: ClaudeAI,
   cursor: CursorIcon,
 };

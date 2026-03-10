@@ -9,6 +9,7 @@
 import {
   IsoDateTime,
   ProjectId,
+  ProviderKind,
   ProviderInteractionMode,
   RuntimeMode,
   ThreadId,
@@ -23,6 +24,7 @@ export const ProjectionThread = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
   title: Schema.String,
+  provider: ProviderKind,
   model: Schema.String,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,

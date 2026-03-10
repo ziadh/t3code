@@ -31,6 +31,7 @@ import {
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import {
   Cause,
+  Duration,
   Effect,
   Exit,
   FileSystem,
@@ -54,7 +55,7 @@ import { OrchestrationEngineService } from "./orchestration/Services/Orchestrati
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { OrchestrationReactor } from "./orchestration/Services/OrchestrationReactor";
 import { ProviderService } from "./provider/Services/ProviderService";
-import { ProviderHealth } from "./provider/Services/ProviderHealth";
+import { ProviderMetadata } from "./provider/Services/ProviderMetadata";
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
 import { clamp } from "effect/Number";
 import { Open, resolveAvailableEditors } from "./open";
@@ -209,7 +210,7 @@ export type ServerCoreRuntimeServices =
   | CheckpointDiffQuery
   | OrchestrationReactor
   | ProviderService
-  | ProviderHealth;
+  | ProviderMetadata;
 
 export type ServerRuntimeServices =
   | ServerCoreRuntimeServices
@@ -254,7 +255,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
   const gitManager = yield* GitManager;
   const terminalManager = yield* TerminalManager;
   const keybindingsManager = yield* Keybindings;
-  const providerHealth = yield* ProviderHealth;
+  const providerMetadata = yield* ProviderMetadata;
   const git = yield* GitCore;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -616,22 +617,56 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
   const subscriptionsScope = yield* Scope.make("sequential");
   yield* Effect.addFinalizer(() => Scope.close(subscriptionsScope, Exit.void));
 
-  // Push updated provider statuses to connected clients once background health checks finish.
+  // Push updated provider metadata to connected clients once background refresh completes.
   let providers: ReadonlyArray<ServerProviderStatus> = [];
-  yield* providerHealth.getStatuses.pipe(
-    Effect.flatMap((statuses) => {
-      providers = statuses;
+  let providerCatalogs = { codex: [], openrouter: [] } as const;
+  yield* providerMetadata.getSnapshot.pipe(
+    Effect.flatMap((snapshot) => {
+      providers = snapshot.providers;
+      providerCatalogs = snapshot.providerCatalogs;
       return broadcastPush({
         type: "push",
         channel: WS_CHANNELS.serverConfigUpdated,
         data: {
           issues: [],
-          providers: statuses,
+          providers,
+          providerCatalogs,
         },
       });
     }),
     Effect.forkIn(subscriptionsScope),
   );
+
+  yield* providerMetadata.refresh.pipe(
+    Effect.catch((cause) =>
+      Effect.logWarning("provider metadata refresh failed", { cause }),
+    ),
+    Effect.forkIn(subscriptionsScope),
+  );
+
+  yield* Stream.runForEach(Stream.fixed(Duration.minutes(5)), () =>
+    providerMetadata.refresh.pipe(
+      Effect.catch((cause) =>
+        Effect.logWarning("provider metadata refresh failed", { cause }),
+      ),
+    ),
+  ).pipe(Effect.forkIn(subscriptionsScope));
+
+  yield* Stream.runForEach(providerMetadata.changes, (snapshot) =>
+    Effect.gen(function* () {
+      providers = snapshot.providers;
+      providerCatalogs = snapshot.providerCatalogs;
+      yield* broadcastPush({
+        type: "push",
+        channel: WS_CHANNELS.serverConfigUpdated,
+        data: {
+          issues: [],
+          providers,
+          providerCatalogs,
+        },
+      });
+    }),
+  ).pipe(Effect.forkIn(subscriptionsScope));
 
   yield* Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) =>
     broadcastPush({
@@ -648,6 +683,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       data: {
         issues: event.issues,
         providers,
+        providerCatalogs,
       },
     }),
   ).pipe(Effect.forkIn(subscriptionsScope));
@@ -900,6 +936,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           keybindings: keybindingsConfig.keybindings,
           issues: keybindingsConfig.issues,
           providers,
+          providerCatalogs,
           availableEditors,
         };
 

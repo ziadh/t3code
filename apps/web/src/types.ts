@@ -78,6 +78,7 @@ export interface Project {
   id: ProjectId;
   name: string;
   cwd: string;
+  provider: ProviderKind;
   model: string;
   expanded: boolean;
   scripts: ProjectScript[];
@@ -88,6 +89,7 @@ export interface Thread {
   codexThreadId: string | null;
   projectId: ProjectId;
   title: string;
+  provider: ProviderKind;
   model: string;
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;

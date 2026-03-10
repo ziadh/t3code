@@ -44,6 +44,7 @@ import { makeSqlitePersistenceLive, SqlitePersistenceMemory } from "./persistenc
 import { SqlClient, SqlError } from "effect/unstable/sql";
 import { ProviderService, type ProviderServiceShape } from "./provider/Services/ProviderService";
 import { ProviderHealth, type ProviderHealthShape } from "./provider/Services/ProviderHealth";
+import { ProviderMetadata, type ProviderMetadataShape } from "./provider/Services/ProviderMetadata";
 import { Open, type OpenShape } from "./open";
 import { GitManager, type GitManagerShape } from "./git/Services/GitManager.ts";
 import type { GitCoreShape } from "./git/Services/GitCore.ts";
@@ -82,6 +83,22 @@ const defaultProviderStatuses: ReadonlyArray<ServerProviderStatus> = [
 const defaultProviderHealthService: ProviderHealthShape = {
   getStatuses: Effect.succeed(defaultProviderStatuses),
 };
+
+const defaultProviderMetadataService: ProviderMetadataShape = {
+  getSnapshot: Effect.succeed({
+    providers: defaultProviderStatuses,
+    providerCatalogs: {
+      codex: [],
+      openrouter: [],
+    },
+  }),
+  refresh: Effect.void,
+  changes: Stream.empty,
+};
+const defaultProviderCatalogs = {
+  codex: [],
+  openrouter: [],
+} as const;
 
 class MockTerminalManager implements TerminalManagerShape {
   private readonly sessions = new Map<string, TerminalSessionSnapshot>();
@@ -392,6 +409,7 @@ describe("WebSocket Server", () => {
       staticDir?: string;
       providerLayer?: Layer.Layer<ProviderService, never>;
       providerHealth?: ProviderHealthShape;
+      providerMetadata?: ProviderMetadataShape;
       open?: OpenShape;
       gitManager?: GitManagerShape;
       gitCore?: Pick<GitCoreShape, "listBranches" | "initRepo" | "pullCurrentBranch">;
@@ -409,6 +427,10 @@ describe("WebSocket Server", () => {
     const providerHealthLayer = Layer.succeed(
       ProviderHealth,
       options.providerHealth ?? defaultProviderHealthService,
+    );
+    const providerMetadataLayer = Layer.succeed(
+      ProviderMetadata,
+      options.providerMetadata ?? defaultProviderMetadataService,
     );
     const openLayer = Layer.succeed(Open, options.open ?? defaultOpenService);
     const serverConfigLayer = Layer.succeed(ServerConfig, {
@@ -446,6 +468,7 @@ describe("WebSocket Server", () => {
     const dependenciesLayer = Layer.empty.pipe(
       Layer.provideMerge(runtimeLayer),
       Layer.provideMerge(providerHealthLayer),
+      Layer.provideMerge(providerMetadataLayer),
       Layer.provideMerge(openLayer),
       Layer.provideMerge(serverConfigLayer),
       Layer.provideMerge(AnalyticsService.layerTest),
@@ -756,6 +779,7 @@ describe("WebSocket Server", () => {
       keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
       issues: [],
       providers: defaultProviderStatuses,
+      providerCatalogs: defaultProviderCatalogs,
       availableEditors: expect.any(Array),
     });
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
@@ -782,6 +806,7 @@ describe("WebSocket Server", () => {
       keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
       issues: [],
       providers: defaultProviderStatuses,
+      providerCatalogs: defaultProviderCatalogs,
       availableEditors: expect.any(Array),
     });
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
@@ -818,6 +843,7 @@ describe("WebSocket Server", () => {
         },
       ],
       providers: defaultProviderStatuses,
+      providerCatalogs: defaultProviderCatalogs,
       availableEditors: expect.any(Array),
     });
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
@@ -853,6 +879,7 @@ describe("WebSocket Server", () => {
       keybindings: ResolvedKeybindingsConfig;
       issues: Array<{ kind: string; index?: number; message: string }>;
       providers: ReadonlyArray<ServerProviderStatus>;
+      providerCatalogs: typeof defaultProviderCatalogs;
       availableEditors: unknown;
     };
     expect(result.cwd).toBe("/my/workspace");
@@ -873,6 +900,7 @@ describe("WebSocket Server", () => {
     expect(result.keybindings.some((entry) => entry.command === "terminal.toggle")).toBe(true);
     expect(result.keybindings.some((entry) => entry.command === "terminal.new")).toBe(true);
     expect(result.providers).toEqual(defaultProviderStatuses);
+    expect(result.providerCatalogs).toEqual(defaultProviderCatalogs);
     expectAvailableEditors(result.availableEditors);
   });
 
@@ -902,6 +930,7 @@ describe("WebSocket Server", () => {
     expect(malformedPush.data).toEqual({
       issues: [{ kind: "keybindings.malformed-config", message: expect.any(String) }],
       providers: defaultProviderStatuses,
+      providerCatalogs: defaultProviderCatalogs,
     });
 
     fs.writeFileSync(keybindingsPath, "[]", "utf8");
@@ -912,7 +941,11 @@ describe("WebSocket Server", () => {
         Array.isArray((push.data as { issues?: unknown[] }).issues) &&
         (push.data as { issues: unknown[] }).issues.length === 0,
     );
-    expect(successPush.data).toEqual({ issues: [], providers: defaultProviderStatuses });
+    expect(successPush.data).toEqual({
+      issues: [],
+      providers: defaultProviderStatuses,
+      providerCatalogs: defaultProviderCatalogs,
+    });
   });
 
   it("routes shell.openInEditor through the injected open service", async () => {
@@ -1170,7 +1203,8 @@ describe("WebSocket Server", () => {
       respondToUserInput: () => unsupported(),
       stopSession: () => unsupported(),
       listSessions: () => Effect.succeed([]),
-      getCapabilities: () => Effect.succeed({ sessionModelSwitch: "in-session" }),
+      getCapabilities: () =>
+        Effect.succeed({ sessionModelSwitch: "in-session", sessionRecovery: "resume-cursor" }),
       rollbackConversation: () => unsupported(),
       streamEvents: Stream.fromPubSub(runtimeEventPubSub),
     };

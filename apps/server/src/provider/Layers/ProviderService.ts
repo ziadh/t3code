@@ -206,10 +206,12 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         }
 
         if (!hasResumeCursor) {
-          return yield* toValidationError(
-            input.operation,
-            `Cannot recover thread '${input.binding.threadId}' because no provider resume state is persisted.`,
-          );
+          if (adapter.capabilities.sessionRecovery !== "stateless") {
+            return yield* toValidationError(
+              input.operation,
+              `Cannot recover thread '${input.binding.threadId}' because no provider resume state is persisted.`,
+            );
+          }
         }
 
         const persistedCwd = readPersistedCwd(input.binding.runtimePayload);
@@ -220,7 +222,9 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           provider: input.binding.provider,
           ...(persistedCwd ? { cwd: persistedCwd } : {}),
           ...(persistedProviderOptions ? { providerOptions: persistedProviderOptions } : {}),
-          ...(hasResumeCursor ? { resumeCursor: input.binding.resumeCursor } : {}),
+          ...(hasResumeCursor && adapter.capabilities.sessionRecovery === "resume-cursor"
+            ? { resumeCursor: input.binding.resumeCursor }
+            : {}),
           runtimeMode: input.binding.runtimeMode ?? "full-access",
         });
         if (resumed.provider !== adapter.provider) {
@@ -233,7 +237,10 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         yield* upsertSessionBinding(resumed, input.binding.threadId);
         yield* analytics.record("provider.session.recovered", {
           provider: resumed.provider,
-          strategy: "resume-thread",
+          strategy:
+            adapter.capabilities.sessionRecovery === "stateless"
+              ? "rehydrate-thread"
+              : "resume-thread",
           hasResumeCursor: resumed.resumeCursor !== undefined,
         });
         return { adapter, session: resumed } as const;

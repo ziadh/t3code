@@ -1493,6 +1493,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       provider: PROVIDER,
       capabilities: {
         sessionModelSwitch: "in-session",
+        sessionRecovery: "resume-cursor",
       },
       startSession,
       sendTurn,
