@@ -106,6 +106,10 @@ function createBaseServerConfig(): ServerConfig {
         checkedAt: NOW_ISO,
       },
     ],
+    providerCatalogs: {
+      codex: [],
+      openrouter: [],
+    },
     availableEditors: [],
   };
 }
@@ -192,6 +196,7 @@ function createSnapshotForTargetUser(options: {
         id: PROJECT_ID,
         title: "Project",
         workspaceRoot: "/repo/project",
+        defaultProvider: "codex",
         defaultModel: "gpt-5",
         scripts: [],
         createdAt: NOW_ISO,
@@ -204,6 +209,7 @@ function createSnapshotForTargetUser(options: {
         id: THREAD_ID,
         projectId: PROJECT_ID,
         title: "Browser test thread",
+        provider: "codex",
         model: "gpt-5",
         interactionMode: "default",
         runtimeMode: "full-access",

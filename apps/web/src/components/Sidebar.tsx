@@ -516,6 +516,7 @@ export default function Sidebar() {
           projectId,
           title,
           workspaceRoot: cwd,
+          defaultProvider: "codex",
           defaultModel: DEFAULT_MODEL_BY_PROVIDER.codex,
           createdAt,
         });

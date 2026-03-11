@@ -294,7 +294,9 @@ export const ProjectCreateCommand = Schema.Struct({
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,
-  defaultProvider: ProviderKind.pipe(Schema.withDecodingDefault(() => DEFAULT_PROVIDER_KIND)),
+  defaultProvider: Schema.optional(ProviderKind).pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_KIND),
+  ),
   defaultModel: Schema.optional(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
 });
@@ -322,7 +324,9 @@ const ThreadCreateCommand = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
-  provider: ProviderKind.pipe(Schema.withDecodingDefault(() => DEFAULT_PROVIDER_KIND)),
+  provider: Schema.optional(ProviderKind).pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_KIND),
+  ),
   model: TrimmedNonEmptyString,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode.pipe(

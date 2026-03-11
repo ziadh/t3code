@@ -5,14 +5,14 @@ import { assertFailure } from "@effect/vitest/utils";
 import { Effect, Layer, Stream } from "effect";
 
 import { CodexAdapter, CodexAdapterShape } from "../Services/CodexAdapter.ts";
+import { OpenRouterAdapter, type OpenRouterAdapterShape } from "../Services/OpenRouterAdapter.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderAdapterRegistryLive } from "./ProviderAdapterRegistry.ts";
 import { ProviderUnsupportedError } from "../Errors.ts";
-import * as NodeServices from "@effect/platform-node/NodeServices";
 
 const fakeCodexAdapter: CodexAdapterShape = {
   provider: "codex",
-  capabilities: { sessionModelSwitch: "in-session" },
+  capabilities: { sessionModelSwitch: "in-session", sessionRecovery: "resume-cursor" },
   startSession: vi.fn(),
   sendTurn: vi.fn(),
   interruptTurn: vi.fn(),
@@ -27,13 +27,16 @@ const fakeCodexAdapter: CodexAdapterShape = {
   streamEvents: Stream.empty,
 };
 
+const fakeOpenRouterAdapter = {
+  ...fakeCodexAdapter,
+  provider: "openrouter" as const,
+  capabilities: { sessionModelSwitch: "in-session", sessionRecovery: "stateless" },
+} satisfies OpenRouterAdapterShape;
+
 const layer = it.layer(
-  Layer.mergeAll(
-    Layer.provide(
-      ProviderAdapterRegistryLive,
-      Layer.succeed(CodexAdapter, fakeCodexAdapter),
-    ),
-    NodeServices.layer,
+  ProviderAdapterRegistryLive.pipe(
+    Layer.provideMerge(Layer.succeed(CodexAdapter, fakeCodexAdapter)),
+    Layer.provideMerge(Layer.succeed(OpenRouterAdapter, fakeOpenRouterAdapter)),
   ),
 );
 
@@ -45,7 +48,7 @@ layer("ProviderAdapterRegistryLive", (it) => {
       assert.equal(codex, fakeCodexAdapter);
 
       const providers = yield* registry.listProviders();
-      assert.deepEqual(providers, ["codex"]);
+      assert.deepEqual(providers, ["codex", "openrouter"]);
     }),
   );
 

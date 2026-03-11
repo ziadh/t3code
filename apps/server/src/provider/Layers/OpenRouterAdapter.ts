@@ -90,12 +90,12 @@ type SessionState = {
   readonly threadId: ThreadId;
   readonly createdAt: string;
   runtimeMode: ProviderSession["runtimeMode"];
-  cwd?: string;
-  model?: string;
+  cwd: string | undefined;
+  model: string | undefined;
   status: ProviderSession["status"];
   updatedAt: string;
-  activeTurnId?: TurnId;
-  lastError?: string;
+  activeTurnId: TurnId | undefined;
+  lastError: string | undefined;
   abortController: AbortController | null;
   activeCommandChild: ChildProcessWithoutNullStreams | null;
   pendingApproval: SessionApproval | null;
@@ -136,6 +136,28 @@ function normalizeInteger(value: unknown): number | undefined {
 
 function truncateText(value: string, max = MAX_TOOL_RESULT_CHARS): string {
   return value.length > max ? `${value.slice(0, max - 3)}...` : value;
+}
+
+function isAbortError(cause: unknown): boolean {
+  return (
+    (cause instanceof DOMException && cause.name === "AbortError") ||
+    (cause instanceof Error && cause.name === "AbortError")
+  );
+}
+
+function isProviderAdapterRequestError(cause: unknown): cause is ProviderAdapterRequestError {
+  return typeof cause === "object" && cause !== null && "_tag" in cause && cause._tag === "ProviderAdapterRequestError";
+}
+
+function isProviderAdapterSessionNotFoundError(
+  cause: unknown,
+): cause is ProviderAdapterSessionNotFoundError {
+  return (
+    typeof cause === "object" &&
+    cause !== null &&
+    "_tag" in cause &&
+    cause._tag === "ProviderAdapterSessionNotFoundError"
+  );
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> {
@@ -572,6 +594,9 @@ function parsePatch(patch: string): ParsedPatch[] {
       const addLines: string[] = [];
       while (index < lines.length) {
         const current = lines[index];
+        if (current === undefined) {
+          break;
+        }
         if (
           current === "*** End Patch" ||
           current.startsWith("*** Add File: ") ||
@@ -608,6 +633,9 @@ function parsePatch(patch: string): ParsedPatch[] {
       const updateLines: string[] = [];
       while (index < lines.length) {
         const current = lines[index];
+        if (current === undefined) {
+          break;
+        }
         if (
           current === "*** End Patch" ||
           current.startsWith("*** Add File: ") ||
@@ -619,7 +647,12 @@ function parsePatch(patch: string): ParsedPatch[] {
         updateLines.push(current);
         index += 1;
       }
-      parsed.push({ kind: "update", filePath, moveTo, lines: updateLines });
+      parsed.push({
+        kind: "update",
+        filePath,
+        ...(moveTo ? { moveTo } : {}),
+        lines: updateLines,
+      });
       continue;
     }
     throw new Error(`Unknown patch hunk header: ${line}`);
@@ -1027,53 +1060,60 @@ const makeOpenRouterAdapter = Effect.gen(function* () {
     return session;
   };
 
-  const readThreadSnapshot = Effect.fn(function* (threadId: ThreadId) {
-    const snapshot = yield* projectionSnapshotQuery.getSnapshot();
-    const thread = snapshot.threads.find((entry) => entry.id === threadId);
-    if (!thread) {
-      return { threadId, turns: [] };
-    }
-    const turnsById = new Map<string, Array<unknown>>();
-    for (const message of thread.messages) {
-      if (!message.turnId) {
-        continue;
-      }
-      const items = turnsById.get(message.turnId) ?? [];
-      items.push({
-        role: message.role,
-        text: message.text,
-        createdAt: message.createdAt,
-      });
-      turnsById.set(message.turnId, items);
-    }
-    return {
-      threadId,
-      turns: Array.from(turnsById.entries()).map(([turnId, items]) => ({
-        id: TurnId.makeUnsafe(turnId),
-        items,
-      })),
-    };
-  });
+  const readThreadSnapshot = (threadId: ThreadId) =>
+    projectionSnapshotQuery.getSnapshot().pipe(
+      Effect.map((snapshot) => {
+        const thread = snapshot.threads.find((entry) => entry.id === threadId);
+        if (!thread) {
+          return { threadId, turns: [] };
+        }
+        const turnsById = new Map<string, Array<unknown>>();
+        for (const message of thread.messages) {
+          if (!message.turnId) {
+            continue;
+          }
+          const items = turnsById.get(message.turnId) ?? [];
+          items.push({
+            role: message.role,
+            text: message.text,
+            createdAt: message.createdAt,
+          });
+          turnsById.set(message.turnId, items);
+        }
+        return {
+          threadId,
+          turns: Array.from(turnsById.entries()).map(([turnId, items]) => ({
+            id: TurnId.makeUnsafe(turnId),
+            items,
+          })),
+        };
+      }),
+      Effect.mapError(
+        (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "thread/read",
+            detail: cause instanceof Error ? cause.message : String(cause),
+            cause,
+          }),
+      ),
+    );
 
   const startSession: OpenRouterAdapterShape["startSession"] = (input) =>
     Effect.gen(function* () {
       if (input.provider !== undefined && input.provider !== PROVIDER) {
-        return yield* Effect.fail(
-          new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "startSession",
-            issue: `Expected provider '${PROVIDER}' but received '${input.provider}'.`,
-          }),
-        );
+        return yield* new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "startSession",
+          issue: `Expected provider '${PROVIDER}' but received '${input.provider}'.`,
+        });
       }
       if (!apiKey) {
-        return yield* Effect.fail(
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "session/start",
-            detail: "OpenRouter is unavailable. Set `OPENROUTER_API_KEY` and restart.",
-          }),
-        );
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "session/start",
+          detail: "OpenRouter is unavailable. Set `OPENROUTER_API_KEY` and restart.",
+        });
       }
 
       const existing = sessions.get(input.threadId);
@@ -1085,6 +1125,8 @@ const makeOpenRouterAdapter = Effect.gen(function* () {
         model: input.model,
         status: "ready",
         updatedAt: nowIso(),
+        activeTurnId: undefined,
+        lastError: undefined,
         abortController: null,
         activeCommandChild: null,
         pendingApproval: null,
@@ -1384,44 +1426,20 @@ const makeOpenRouterAdapter = Effect.gen(function* () {
           detail: "OpenRouter tool loop exceeded the maximum iteration limit.",
         });
       },
-      catch: async (cause) => {
-        const session = sessions.get(input.threadId);
-        if (session) {
-          const isAbort = cause instanceof DOMException && cause.name === "AbortError";
-          session.activeTurnId = undefined;
-          session.abortController = null;
-          session.updatedAt = nowIso();
-
-          if (isAbort) {
-            session.status = "ready";
-            await Effect.runPromise(
-              emit(
-                baseRuntimeEvent(session, "turn.aborted", {
-                  reason: "Turn interrupted",
-                }),
-              ),
-            ).catch(() => undefined);
-          } else {
-            const detail =
-              cause instanceof Error && cause.message.length > 0 ? cause.message : String(cause);
-            session.status = "error";
-            session.lastError = detail;
-            await Effect.runPromise(
-              emit(
-                baseRuntimeEvent(session, "runtime.error", {
-                  message: detail,
-                  class: "provider_error",
-                }),
-              ),
-            ).catch(() => undefined);
-          }
-        }
-
-        if (
-          cause instanceof ProviderAdapterRequestError ||
-          cause instanceof ProviderAdapterSessionNotFoundError
-        ) {
+      catch: (cause) => {
+        if (isProviderAdapterRequestError(cause)) {
           return cause;
+        }
+        if (isProviderAdapterSessionNotFoundError(cause)) {
+          return cause;
+        }
+        if (isAbortError(cause)) {
+          return new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "turn/start",
+            detail: "Turn interrupted",
+            cause,
+          });
         }
         return new ProviderAdapterRequestError({
           provider: PROVIDER,
@@ -1430,7 +1448,49 @@ const makeOpenRouterAdapter = Effect.gen(function* () {
           cause,
         });
       },
-    });
+    }).pipe(
+      Effect.tapError((error) =>
+        Effect.promise(async () => {
+          const session = sessions.get(input.threadId);
+          if (!session) {
+            return;
+          }
+          const detail =
+            isProviderAdapterRequestError(error)
+              ? error.detail
+              : error instanceof Error
+                ? error.message
+                : String(error);
+
+          session.activeTurnId = undefined;
+          session.abortController = null;
+          session.updatedAt = nowIso();
+
+          if (detail === "Turn interrupted") {
+            session.status = "ready";
+            await Effect.runPromise(
+              emit(
+                baseRuntimeEvent(session, "turn.aborted", {
+                  reason: "Turn interrupted",
+                }),
+              ),
+            ).catch(() => undefined);
+            return;
+          }
+
+          session.status = "error";
+          session.lastError = detail;
+          await Effect.runPromise(
+            emit(
+              baseRuntimeEvent(session, "runtime.error", {
+                message: detail,
+                class: "provider_error",
+              }),
+            ),
+          ).catch(() => undefined);
+        }),
+      ),
+    );
 
   const interruptTurn: OpenRouterAdapterShape["interruptTurn"] = (threadId) =>
     Effect.sync(() => {
@@ -1504,13 +1564,11 @@ const makeOpenRouterAdapter = Effect.gen(function* () {
   const rollbackThread: OpenRouterAdapterShape["rollbackThread"] = (threadId, numTurns) =>
     Effect.gen(function* () {
       if (!Number.isInteger(numTurns) || numTurns < 1) {
-        return yield* Effect.fail(
-          new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "rollbackThread",
-            issue: "numTurns must be an integer >= 1.",
-          }),
-        );
+        return yield* new ProviderAdapterValidationError({
+          provider: PROVIDER,
+          operation: "rollbackThread",
+          issue: "numTurns must be an integer >= 1.",
+        });
       }
       return yield* readThreadSnapshot(threadId);
     });

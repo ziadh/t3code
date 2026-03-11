@@ -476,6 +476,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
     provider,
     capabilities: {
       sessionModelSwitch: "in-session",
+      sessionRecovery: "resume-cursor",
     },
     startSession,
     sendTurn,

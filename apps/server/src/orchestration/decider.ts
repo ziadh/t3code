@@ -1,4 +1,5 @@
-import type {
+import {
+  DEFAULT_PROVIDER_KIND,
   OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationReadModel,
@@ -77,7 +78,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           projectId: command.projectId,
           title: command.title,
           workspaceRoot: command.workspaceRoot,
-          defaultProvider: command.defaultProvider,
+          defaultProvider: command.defaultProvider ?? DEFAULT_PROVIDER_KIND,
           defaultModel: command.defaultModel ?? null,
           scripts: [],
           createdAt: command.createdAt,
@@ -160,7 +161,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           projectId: command.projectId,
           title: command.title,
-          provider: command.provider,
+          provider: command.provider ?? DEFAULT_PROVIDER_KIND,
           model: command.model,
           runtimeMode: command.runtimeMode,
           interactionMode: command.interactionMode,

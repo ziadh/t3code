@@ -26,6 +26,7 @@ import {
   WebSocketRequest,
   WsPush,
   WsResponse,
+  type ServerProviderCatalogs,
   ServerProviderStatus,
 } from "@t3tools/contracts";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
@@ -619,7 +620,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
   // Push updated provider metadata to connected clients once background refresh completes.
   let providers: ReadonlyArray<ServerProviderStatus> = [];
-  let providerCatalogs = { codex: [], openrouter: [] } as const;
+  let providerCatalogs: ServerProviderCatalogs = { codex: [], openrouter: [] };
   yield* providerMetadata.getSnapshot.pipe(
     Effect.flatMap((snapshot) => {
       providers = snapshot.providers;
@@ -638,19 +639,15 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
   );
 
   yield* providerMetadata.refresh.pipe(
-    Effect.catch((cause) =>
-      Effect.logWarning("provider metadata refresh failed", { cause }),
-    ),
     Effect.forkIn(subscriptionsScope),
   );
 
-  yield* Stream.runForEach(Stream.fixed(Duration.minutes(5)), () =>
+  const refreshLoop = Effect.forever(
     providerMetadata.refresh.pipe(
-      Effect.catch((cause) =>
-        Effect.logWarning("provider metadata refresh failed", { cause }),
-      ),
+      Effect.delay(Duration.minutes(5)),
     ),
-  ).pipe(Effect.forkIn(subscriptionsScope));
+  );
+  yield* refreshLoop.pipe(Effect.forkIn(subscriptionsScope));
 
   yield* Stream.runForEach(providerMetadata.changes, (snapshot) =>
     Effect.gen(function* () {
@@ -713,6 +710,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           projectId: bootstrapProjectId,
           title: bootstrapProjectTitle,
           workspaceRoot: cwd,
+          defaultProvider: "codex",
           defaultModel: bootstrapProjectDefaultModel,
           createdAt,
         });
@@ -733,6 +731,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           threadId,
           projectId: bootstrapProjectId,
           title: "New thread",
+          provider: "codex",
           model: bootstrapProjectDefaultModel,
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           runtimeMode: "full-access",

@@ -14,6 +14,7 @@ import { CliConfig, recordStartupHeartbeat, t3Cli, type CliConfigShape } from ".
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { Open, type OpenShape } from "./open";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
+import { ProviderHealth } from "./provider/Services/ProviderHealth";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { Server, type ServerShape } from "./wsServer";
 
@@ -47,6 +48,18 @@ const testLayer = Layer.mergeAll(
     start: serverStart,
     stopSignal: Effect.void,
   } satisfies ServerShape),
+  Layer.succeed(ProjectionSnapshotQuery, {
+    getSnapshot: () =>
+      Effect.succeed({
+        snapshotSequence: 0,
+        projects: [],
+        threads: [],
+        updatedAt: new Date(0).toISOString(),
+      } satisfies OrchestrationReadModel),
+  }),
+  Layer.succeed(ProviderHealth, {
+    getStatuses: Effect.succeed([]),
+  }),
   Layer.succeed(Open, {
     openBrowser: (_target: string) => Effect.void,
     openInEditor: () => Effect.void,

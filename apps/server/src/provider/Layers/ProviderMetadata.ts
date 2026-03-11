@@ -60,19 +60,23 @@ function normalizeOpenRouterCatalogPayload(payload: unknown): ServerProviderCata
       }
       const model = entry as Record<string, unknown>;
       const slug = typeof model.id === "string" ? model.id.trim() : "";
-      const nameCandidate =
-        typeof model.name === "string" ? model.name.trim() : typeof model.id === "string" ? model.id.trim() : "";
-      if (!slug || !nameCandidate) {
+      const name =
+        typeof model.name === "string"
+          ? model.name.trim()
+          : typeof model.id === "string"
+            ? model.id.trim()
+            : "";
+      if (!slug || !name || !supportsTools(model)) {
         return [];
       }
+
+      const contextWindowTokens = normalizePositiveInt(model.context_length);
       return [
         {
           slug,
-          name: nameCandidate,
-          supportsTools: supportsTools(model),
-          ...(normalizePositiveInt(model.context_length) !== undefined
-            ? { contextWindowTokens: normalizePositiveInt(model.context_length) }
-            : {}),
+          name,
+          supportsTools: true,
+          ...(contextWindowTokens !== undefined ? { contextWindowTokens } : {}),
         } satisfies ProviderCatalogModel,
       ];
     })
@@ -92,71 +96,73 @@ const defaultCatalogs = (): ServerProviderCatalogs => ({
   openrouter: [],
 });
 
-const loadCachedCatalogs = Effect.fn(function* () {
-  const { stateDir } = yield* ServerConfig;
-  const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const cachePath = path.join(stateDir, "provider-model-catalogs", OPENROUTER_CACHE_FILE);
-  const raw = yield* fileSystem.readFileString(cachePath).pipe(Effect.catch(() => Effect.succeed(null)));
-  if (!raw) {
-    return defaultCatalogs();
-  }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!isServerProviderCatalogs(parsed)) {
-      return defaultCatalogs();
-    }
-    return {
-      codex: toCodexCatalog(),
-      openrouter: parsed.openrouter,
-    } satisfies ServerProviderCatalogs;
-  } catch {
-    return defaultCatalogs();
-  }
-});
-
-const persistCachedCatalogs = Effect.fn(function* (catalogs: ServerProviderCatalogs) {
-  const { stateDir } = yield* ServerConfig;
-  const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const cacheDir = path.join(stateDir, "provider-model-catalogs");
-  const cachePath = path.join(cacheDir, OPENROUTER_CACHE_FILE);
-  yield* fileSystem.makeDirectory(cacheDir, { recursive: true }).pipe(Effect.catch(() => Effect.void));
-  yield* fileSystem
-    .writeFileString(cachePath, JSON.stringify(catalogs, null, 2))
-    .pipe(Effect.catch(() => Effect.void));
-});
-
-const fetchOpenRouterCatalog = Effect.fn(function* (): Effect.Effect<
-  ServerProviderCatalogs["openrouter"],
-  never
-> {
+const fetchOpenRouterCatalog = (): Effect.Effect<ServerProviderCatalogs["openrouter"]> => {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) {
-    return [];
+    return Effect.succeed([]);
   }
-  const response = yield* Effect.tryPromise({
-    try: () =>
-      fetch(OPENROUTER_MODELS_URL, {
+
+  return Effect.promise(async () => {
+    try {
+      const response = await fetch(OPENROUTER_MODELS_URL, {
         headers: {
           Authorization: `Bearer ${apiKey}`,
         },
-      }),
-    catch: () => null,
+      });
+      if (!response.ok) {
+        return [];
+      }
+      const payload = await response.json();
+      return normalizeOpenRouterCatalogPayload(payload);
+    } catch {
+      return [];
+    }
   });
-  if (!response || !response.ok) {
-    return [];
-  }
-  const payload = yield* Effect.tryPromise({
-    try: () => response.json(),
-    catch: () => null,
-  });
-  return normalizeOpenRouterCatalogPayload(payload);
-});
+};
 
 const makeProviderMetadata = Effect.gen(function* () {
+  const { stateDir } = yield* ServerConfig;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const providerHealth = yield* ProviderHealth;
-  const cachedCatalogs = yield* loadCachedCatalogs();
+  const cacheDir = path.join(stateDir, "provider-model-catalogs");
+  const cachePath = path.join(cacheDir, OPENROUTER_CACHE_FILE);
+
+  const loadCachedCatalogs = Effect.sync(() => cachePath).pipe(
+    Effect.flatMap((resolvedCachePath) =>
+      fileSystem.readFileString(resolvedCachePath).pipe(Effect.catch(() => Effect.succeed(""))),
+    ),
+    Effect.flatMap((raw) => {
+      if (!raw) {
+        return Effect.succeed(defaultCatalogs());
+      }
+      return Effect.sync(() => {
+        try {
+          const parsed = JSON.parse(raw) as unknown;
+          return isServerProviderCatalogs(parsed)
+            ? ({
+                codex: toCodexCatalog(),
+                openrouter: parsed.openrouter,
+              } satisfies ServerProviderCatalogs)
+            : defaultCatalogs();
+        } catch {
+          return defaultCatalogs();
+        }
+      });
+    }),
+  );
+
+  const persistCachedCatalogs = (catalogs: ServerProviderCatalogs) =>
+    fileSystem.makeDirectory(cacheDir, { recursive: true }).pipe(
+      Effect.catch(() => Effect.void),
+      Effect.flatMap(() =>
+        fileSystem
+          .writeFileString(cachePath, JSON.stringify(catalogs, null, 2))
+          .pipe(Effect.catch(() => Effect.void)),
+      ),
+    );
+
+  const cachedCatalogs = yield* loadCachedCatalogs;
   const initialSnapshot: ProviderMetadataSnapshot = {
     providers: yield* providerHealth.getStatuses,
     providerCatalogs: cachedCatalogs,
@@ -167,13 +173,11 @@ const makeProviderMetadata = Effect.gen(function* () {
   const refresh: ProviderMetadataShape["refresh"] = Effect.gen(function* () {
     const providers = yield* providerHealth.getStatuses;
     const fetchedOpenRouterCatalog = yield* fetchOpenRouterCatalog();
-    const fallbackCatalogs = yield* loadCachedCatalogs();
+    const fallbackCatalogs = yield* loadCachedCatalogs;
     const nextCatalogs: ServerProviderCatalogs = {
       codex: toCodexCatalog(),
       openrouter:
-        fetchedOpenRouterCatalog.length > 0
-          ? fetchedOpenRouterCatalog
-          : fallbackCatalogs.openrouter,
+        fetchedOpenRouterCatalog.length > 0 ? fetchedOpenRouterCatalog : fallbackCatalogs.openrouter,
     };
     const nextSnapshot: ProviderMetadataSnapshot = {
       providers,
