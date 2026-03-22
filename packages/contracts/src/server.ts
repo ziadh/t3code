@@ -45,6 +45,28 @@ export type ServerProviderStatus = typeof ServerProviderStatus.Type;
 
 const ServerProviderStatuses = Schema.Array(ServerProviderStatus);
 
+export const TerminalShellKind = Schema.Literals([
+  "powershell",
+  "cmd",
+  "pwsh",
+  "bash",
+  "zsh",
+  "sh",
+  "fish",
+  "nushell",
+  "unknown",
+]);
+export type TerminalShellKind = typeof TerminalShellKind.Type;
+
+export const TerminalShellOption = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+  path: TrimmedNonEmptyString,
+  kind: TerminalShellKind,
+  isDefault: Schema.Boolean,
+});
+export type TerminalShellOption = typeof TerminalShellOption.Type;
+
 export const ServerConfig = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   keybindingsConfigPath: TrimmedNonEmptyString,
@@ -52,6 +74,7 @@ export const ServerConfig = Schema.Struct({
   issues: ServerConfigIssues,
   providers: ServerProviderStatuses,
   availableEditors: Schema.Array(EditorId),
+  availableTerminalShells: Schema.Array(TerminalShellOption),
 });
 export type ServerConfig = typeof ServerConfig.Type;
 

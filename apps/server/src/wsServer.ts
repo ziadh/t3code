@@ -20,6 +20,8 @@ import {
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   ProjectId,
   ThreadId,
+  type TerminalOpenInput,
+  type TerminalRestartInput,
   WS_CHANNELS,
   WS_METHODS,
   WebSocketRequest,
@@ -61,6 +63,7 @@ import { Open, resolveAvailableEditors } from "./open";
 import { ServerConfig } from "./config";
 import { GitCore } from "./git/Services/GitCore.ts";
 import { tryHandleProjectFaviconRequest } from "./projectFaviconRoute";
+import { resolveAvailableTerminalShells } from "./terminal/shellDiscovery";
 import {
   ATTACHMENTS_ROUTE_PREFIX,
   normalizeAttachmentRelativePath,
@@ -249,6 +252,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
     autoBootstrapProjectFromCwd,
   } = serverConfig;
   const availableEditors = resolveAvailableEditors();
+  const availableTerminalShells = resolveAvailableTerminalShells();
 
   const gitManager = yield* GitManager;
   const terminalManager = yield* TerminalManager;
@@ -837,7 +841,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       }
 
       case WS_METHODS.terminalOpen: {
-        const body = stripRequestTag(request.body);
+        const body = stripRequestTag(request.body) as TerminalOpenInput;
         return yield* terminalManager.open(body);
       }
 
@@ -857,7 +861,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       }
 
       case WS_METHODS.terminalRestart: {
-        const body = stripRequestTag(request.body);
+        const body = stripRequestTag(request.body) as TerminalRestartInput;
         return yield* terminalManager.restart(body);
       }
 
@@ -875,6 +879,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           issues: keybindingsConfig.issues,
           providers: providerStatuses,
           availableEditors,
+          availableTerminalShells,
         };
 
       case WS_METHODS.serverUpsertKeybinding: {

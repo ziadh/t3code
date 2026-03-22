@@ -12,6 +12,7 @@ import {
   useState,
 } from "react";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
+import type { TerminalShellOption } from "@t3tools/contracts";
 import { type TerminalContextSelection } from "~/lib/terminalContext";
 import { openInPreferredEditor } from "../editorPreferences";
 import {
@@ -27,6 +28,8 @@ import {
   type ThreadTerminalGroup,
 } from "../types";
 import { readNativeApi } from "~/nativeApi";
+import type { AppSettings } from "~/appSettings";
+import { applyTerminalShellPreference } from "~/terminalShellPreference";
 
 const MIN_DRAWER_HEIGHT = 180;
 const MAX_DRAWER_HEIGHT_RATIO = 0.75;
@@ -192,6 +195,11 @@ interface TerminalViewportProps {
   autoFocus: boolean;
   resizeEpoch: number;
   drawerHeight: number;
+  terminalShellSettings: Pick<
+    AppSettings,
+    "terminalShellMode" | "terminalShellId" | "terminalCustomShellPath"
+  >;
+  availableTerminalShells: ReadonlyArray<TerminalShellOption>;
 }
 
 function TerminalViewport({
@@ -206,6 +214,8 @@ function TerminalViewport({
   autoFocus,
   resizeEpoch,
   drawerHeight,
+  terminalShellSettings,
+  availableTerminalShells,
 }: TerminalViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -475,14 +485,20 @@ function TerminalViewport({
         const activeFitAddon = fitAddonRef.current;
         if (!activeTerminal || !activeFitAddon) return;
         activeFitAddon.fit();
-        const snapshot = await api.terminal.open({
-          threadId,
-          terminalId,
-          cwd,
-          cols: activeTerminal.cols,
-          rows: activeTerminal.rows,
-          ...(runtimeEnv ? { env: runtimeEnv } : {}),
-        });
+        const snapshot = await api.terminal.open(
+          applyTerminalShellPreference(
+            {
+              threadId,
+              terminalId,
+              cwd,
+              cols: activeTerminal.cols,
+              rows: activeTerminal.rows,
+              ...(runtimeEnv ? { env: runtimeEnv } : {}),
+            },
+            terminalShellSettings,
+            availableTerminalShells,
+          ),
+        );
         if (disposed) return;
         activeTerminal.write("\u001bc");
         if (snapshot.history.length > 0) {
@@ -662,6 +678,11 @@ interface ThreadTerminalDrawerProps {
   onCloseTerminal: (terminalId: string) => void;
   onHeightChange: (height: number) => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  terminalShellSettings: Pick<
+    AppSettings,
+    "terminalShellMode" | "terminalShellId" | "terminalCustomShellPath"
+  >;
+  availableTerminalShells: ReadonlyArray<TerminalShellOption>;
 }
 
 interface TerminalActionButtonProps {
@@ -712,6 +733,8 @@ export default function ThreadTerminalDrawer({
   onCloseTerminal,
   onHeightChange,
   onAddTerminalContext,
+  terminalShellSettings,
+  availableTerminalShells,
 }: ThreadTerminalDrawerProps) {
   const [drawerHeight, setDrawerHeight] = useState(() => clampDrawerHeight(height));
   const [resizeEpoch, setResizeEpoch] = useState(0);
@@ -1017,6 +1040,8 @@ export default function ThreadTerminalDrawer({
                         autoFocus={terminalId === resolvedActiveTerminalId}
                         resizeEpoch={resizeEpoch}
                         drawerHeight={drawerHeight}
+                        terminalShellSettings={terminalShellSettings}
+                        availableTerminalShells={availableTerminalShells}
                       />
                     </div>
                   </div>
@@ -1037,6 +1062,8 @@ export default function ThreadTerminalDrawer({
                   autoFocus
                   resizeEpoch={resizeEpoch}
                   drawerHeight={drawerHeight}
+                  terminalShellSettings={terminalShellSettings}
+                  availableTerminalShells={availableTerminalShells}
                 />
               </div>
             )}

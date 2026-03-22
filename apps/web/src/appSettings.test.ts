@@ -215,6 +215,9 @@ describe("AppSettingsSchema", () => {
       confirmThreadDelete: false,
       enableAssistantStreaming: false,
       timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
+      terminalShellMode: "default",
+      terminalShellId: "",
+      terminalCustomShellPath: "",
       customCodexModels: [],
       customClaudeModels: [],
     });

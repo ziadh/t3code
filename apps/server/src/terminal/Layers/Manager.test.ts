@@ -182,6 +182,22 @@ describe("TerminalManager", () => {
     historyLineLimit = 5,
     options: {
       shellResolver?: () => string;
+      availableShellsResolver?: () => ReadonlyArray<{
+        id: string;
+        label: string;
+        path: string;
+        kind:
+          | "powershell"
+          | "cmd"
+          | "pwsh"
+          | "bash"
+          | "zsh"
+          | "sh"
+          | "fish"
+          | "nushell"
+          | "unknown";
+        isDefault: boolean;
+      }>;
       subprocessChecker?: (terminalPid: number) => Promise<boolean>;
       subprocessPollIntervalMs?: number;
       processKillGraceMs?: number;
@@ -197,6 +213,9 @@ describe("TerminalManager", () => {
       ptyAdapter,
       historyLineLimit,
       shellResolver: options.shellResolver ?? (() => "/bin/bash"),
+      ...(options.availableShellsResolver
+        ? { availableShellsResolver: options.availableShellsResolver }
+        : {}),
       ...(options.subprocessChecker ? { subprocessChecker: options.subprocessChecker } : {}),
       ...(options.subprocessPollIntervalMs
         ? { subprocessPollIntervalMs: options.subprocessPollIntervalMs }
@@ -517,10 +536,13 @@ describe("TerminalManager", () => {
     if (!process) return;
 
     await manager.close({ threadId: "thread-1" });
-    await waitFor(() => process.killSignals.includes("SIGKILL"));
-
-    expect(process.killSignals[0]).toBe("SIGTERM");
-    expect(process.killSignals).toContain("SIGKILL");
+    if (globalThis.process.platform === "win32") {
+      expect(process.killSignals).toEqual([undefined]);
+    } else {
+      await waitFor(() => process.killSignals.includes("SIGKILL"));
+      expect(process.killSignals[0]).toBe("SIGTERM");
+      expect(process.killSignals).toContain("SIGKILL");
+    }
 
     manager.dispose();
   });
@@ -579,13 +601,16 @@ describe("TerminalManager", () => {
 
     expect(snapshot.status).toBe("running");
     expect(ptyAdapter.spawnInputs.length).toBeGreaterThanOrEqual(2);
-    expect(ptyAdapter.spawnInputs[0]?.shell).toBe("/definitely/missing-shell");
+    expect(ptyAdapter.spawnInputs[0]?.shell).toBe(
+      process.platform === "win32" ? "/definitely/missing-shell -l" : "/definitely/missing-shell",
+    );
 
     if (process.platform === "win32") {
       expect(
-        ptyAdapter.spawnInputs.some(
-          (input) => input.shell === "cmd.exe" || input.shell === "powershell.exe",
-        ),
+        ptyAdapter.spawnInputs.some((input) => {
+          const shell = input.shell.toLowerCase();
+          return shell.endsWith("\\cmd.exe") || shell.endsWith("\\powershell.exe");
+        }),
       ).toBe(true);
     } else {
       expect(
@@ -594,6 +619,149 @@ describe("TerminalManager", () => {
         ),
       ).toBe(true);
     }
+
+    manager.dispose();
+  });
+
+  it("uses the selected detected shell first", async () => {
+    const { manager, ptyAdapter } = makeManager(5, {
+      availableShellsResolver: () => [
+        {
+          id: "pwsh.exe",
+          label: "PowerShell",
+          path: "pwsh.exe",
+          kind: "pwsh",
+          isDefault: false,
+        },
+      ],
+    });
+
+    await manager.open(openInput({ shellType: "detected", shellId: "pwsh.exe" }));
+
+    expect(ptyAdapter.spawnInputs[0]?.shell).toBe("pwsh.exe");
+    manager.dispose();
+  });
+
+  it("uses the custom shell path first", async () => {
+    const { manager, ptyAdapter } = makeManager();
+
+    await manager.open(openInput({ shellType: "custom", shellPath: "/custom/pwsh" }));
+
+    expect(ptyAdapter.spawnInputs[0]?.shell).toBe("/custom/pwsh");
+    manager.dispose();
+  });
+
+  it("restarts an existing terminal session when the requested shell changes", async () => {
+    const { manager, ptyAdapter } = makeManager();
+
+    await manager.open(openInput());
+    await manager.open(openInput({ shellType: "custom", shellPath: "/custom/pwsh" }));
+
+    expect(ptyAdapter.spawnInputs).toHaveLength(2);
+    expect(ptyAdapter.spawnInputs[1]?.shell).toBe("/custom/pwsh");
+
+    manager.dispose();
+  });
+
+  it("maps a custom shell basename to a detected shell path", async () => {
+    const { manager, ptyAdapter } = makeManager(5, {
+      availableShellsResolver: () => [
+        {
+          id: "c:\\program files\\git\\bin\\bash.exe",
+          label: "bash",
+          path: "C:\\Program Files\\Git\\bin\\bash.exe",
+          kind: "bash",
+          isDefault: false,
+        },
+      ],
+    });
+
+    await manager.open(openInput({ shellType: "custom", shellPath: "bash.exe" }));
+
+    expect(ptyAdapter.spawnInputs[0]?.shell).toBe("C:\\Program Files\\Git\\bin\\bash.exe");
+    manager.dispose();
+  });
+
+  it("rejects unknown detected shell ids", async () => {
+    const { manager } = makeManager(5, {
+      availableShellsResolver: () => [],
+    });
+
+    const snapshot = await manager.open(
+      openInput({ shellType: "detected", shellId: "missing-shell" }),
+    );
+
+    expect(snapshot.status).toBe("error");
+
+    manager.dispose();
+  });
+
+  it("rejects custom shell values that are not executable paths or detected shells", async () => {
+    const { manager } = makeManager(5, {
+      availableShellsResolver: () => [],
+    });
+
+    const snapshot = await manager.open(openInput({ shellType: "custom", shellPath: "bash.exe" }));
+
+    expect(snapshot.status).toBe("error");
+
+    manager.dispose();
+  });
+
+  it("falls back after a selected shell fails to spawn", async () => {
+    const { manager, ptyAdapter } = makeManager(5, {
+      availableShellsResolver: () => [
+        {
+          id: "missing-shell",
+          label: "Missing shell",
+          path: "/missing/shell",
+          kind: "unknown",
+          isDefault: false,
+        },
+      ],
+    });
+    ptyAdapter.spawnFailures.push(new Error("posix_spawnp failed."));
+
+    const snapshot = await manager.open(
+      openInput({ shellType: "detected", shellId: "missing-shell" }),
+    );
+
+    expect(snapshot.status).toBe("running");
+    expect(ptyAdapter.spawnInputs[0]?.shell).toBe("/missing/shell");
+    expect(ptyAdapter.spawnInputs.length).toBeGreaterThanOrEqual(2);
+
+    manager.dispose();
+  });
+
+  it("emits fallback warning after the started event so the UI can render it", async () => {
+    const { manager, ptyAdapter } = makeManager(5, {
+      availableShellsResolver: () => [
+        {
+          id: "missing-shell",
+          label: "Missing shell",
+          path: "/missing/shell",
+          kind: "unknown",
+          isDefault: false,
+        },
+      ],
+    });
+    const events: TerminalEvent[] = [];
+    manager.on("event", (event) => {
+      events.push(event);
+    });
+    ptyAdapter.spawnFailures.push(new Error("posix_spawnp failed."));
+
+    await manager.open(openInput({ shellType: "detected", shellId: "missing-shell" }));
+
+    const startedIndex = events.findIndex((event) => event.type === "started");
+    const warningIndex = events.findIndex(
+      (event) =>
+        event.type === "error" &&
+        event.message.includes("Selected shell '/missing/shell' failed to start."),
+    );
+
+    expect(startedIndex).toBeGreaterThanOrEqual(0);
+    expect(warningIndex).toBeGreaterThan(startedIndex);
 
     manager.dispose();
   });

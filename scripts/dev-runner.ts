@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -546,6 +547,15 @@ const runtimeProgram = Command.run(devRunnerCli, { version: "0.0.0" }).pipe(
   Effect.provide(cliRuntimeLayer),
 );
 
-if (import.meta.main) {
+const isMainModule = (() => {
+  const entrypoint = process.argv[1];
+  if (!entrypoint) {
+    return false;
+  }
+
+  return fileURLToPath(import.meta.url) === entrypoint;
+})();
+
+if (isMainModule) {
   NodeRuntime.runMain(runtimeProgram);
 }

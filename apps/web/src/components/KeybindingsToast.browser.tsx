@@ -53,6 +53,7 @@ function createBaseServerConfig(): ServerConfig {
       },
     ],
     availableEditors: [],
+    availableTerminalShells: [],
   };
 }
 

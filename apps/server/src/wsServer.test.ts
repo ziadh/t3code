@@ -451,6 +451,16 @@ function expectAvailableEditors(value: unknown): void {
   }
 }
 
+function expectAvailableTerminalShells(value: unknown): void {
+  expect(Array.isArray(value)).toBe(true);
+  for (const shell of value as Array<Record<string, unknown>>) {
+    expect(typeof shell.id).toBe("string");
+    expect(typeof shell.label).toBe("string");
+    expect(typeof shell.path).toBe("string");
+    expect(typeof shell.isDefault).toBe("boolean");
+  }
+}
+
 function ensureParentDir(filePath: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
@@ -846,8 +856,12 @@ describe("WebSocket Server", () => {
       issues: [],
       providers: defaultProviderStatuses,
       availableEditors: expect.any(Array),
+      availableTerminalShells: expect.any(Array),
     });
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
+    expectAvailableTerminalShells(
+      (response.result as { availableTerminalShells: unknown }).availableTerminalShells,
+    );
   });
 
   it("bootstraps default keybindings file when missing", async () => {
@@ -871,8 +885,12 @@ describe("WebSocket Server", () => {
       issues: [],
       providers: defaultProviderStatuses,
       availableEditors: expect.any(Array),
+      availableTerminalShells: expect.any(Array),
     });
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
+    expectAvailableTerminalShells(
+      (response.result as { availableTerminalShells: unknown }).availableTerminalShells,
+    );
 
     const persistedConfig = JSON.parse(
       fs.readFileSync(keybindingsPath, "utf8"),
@@ -907,8 +925,12 @@ describe("WebSocket Server", () => {
       ],
       providers: defaultProviderStatuses,
       availableEditors: expect.any(Array),
+      availableTerminalShells: expect.any(Array),
     });
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
+    expectAvailableTerminalShells(
+      (response.result as { availableTerminalShells: unknown }).availableTerminalShells,
+    );
     expect(fs.readFileSync(keybindingsPath, "utf8")).toBe("{ not-json");
   });
 
@@ -942,6 +964,7 @@ describe("WebSocket Server", () => {
       issues: Array<{ kind: string; index?: number; message: string }>;
       providers: ReadonlyArray<ServerProviderStatus>;
       availableEditors: unknown;
+      availableTerminalShells: unknown;
     };
     expect(result.cwd).toBe("/my/workspace");
     expect(result.keybindingsConfigPath).toBe(keybindingsPath);
@@ -962,6 +985,7 @@ describe("WebSocket Server", () => {
     expect(result.keybindings.some((entry) => entry.command === "terminal.new")).toBe(true);
     expect(result.providers).toEqual(defaultProviderStatuses);
     expectAvailableEditors(result.availableEditors);
+    expectAvailableTerminalShells(result.availableTerminalShells);
   });
 
   it("pushes server.configUpdated issues when keybindings file changes", async () => {
@@ -1057,8 +1081,12 @@ describe("WebSocket Server", () => {
       issues: [],
       providers: defaultProviderStatuses,
       availableEditors: expect.any(Array),
+      availableTerminalShells: expect.any(Array),
     });
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
+    expectAvailableTerminalShells(
+      (response.result as { availableTerminalShells: unknown }).availableTerminalShells,
+    );
   });
 
   it("upserts keybinding rules and updates cached server config", async () => {
@@ -1105,9 +1133,13 @@ describe("WebSocket Server", () => {
       issues: [],
       providers: defaultProviderStatuses,
       availableEditors: expect.any(Array),
+      availableTerminalShells: expect.any(Array),
     });
     expectAvailableEditors(
       (configResponse.result as { availableEditors: unknown }).availableEditors,
+    );
+    expectAvailableTerminalShells(
+      (configResponse.result as { availableTerminalShells: unknown }).availableTerminalShells,
     );
   });
 

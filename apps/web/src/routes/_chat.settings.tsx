@@ -54,6 +54,20 @@ const TIMESTAMP_FORMAT_LABELS = {
   "24-hour": "24-hour",
 } as const;
 
+const TERMINAL_SHELL_MODE_LABELS = {
+  default: "System default",
+  detected: "Detected shell",
+  custom: "Custom path",
+} as const;
+
+function terminalShellOptionLabel(shell: {
+  label: string;
+  path: string;
+  isDefault: boolean;
+}): string {
+  return `${shell.label} (${shell.path})${shell.isDefault ? " · System default" : ""}`;
+}
+
 function SettingsRouteView() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { settings, defaults, updateSettings } = useAppSettings();
@@ -74,6 +88,7 @@ function SettingsRouteView() {
   const codexHomePath = settings.codexHomePath;
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
   const availableEditors = serverConfigQuery.data?.availableEditors;
+  const availableTerminalShells = serverConfigQuery.data?.availableTerminalShells ?? [];
 
   const gitTextGenerationModelOptions = getAppModelOptions(
     "codex",
@@ -340,6 +355,150 @@ function SettingsRouteView() {
                     Reset codex overrides
                   </Button>
                 </div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-border bg-card p-5">
+              <div className="mb-4">
+                <h2 className="text-sm font-medium text-foreground">Terminal</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Choose which shell newly opened or restarted embedded terminals should use.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex flex-col gap-4 rounded-lg border border-border bg-background px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground">Embedded terminal shell</p>
+                    <p className="text-xs text-muted-foreground">
+                      Detected shells come from the machine running the T3 Code server.
+                    </p>
+                  </div>
+                  <Select
+                    value={settings.terminalShellMode}
+                    onValueChange={(value) => {
+                      if (value !== "default" && value !== "detected" && value !== "custom") {
+                        return;
+                      }
+                      updateSettings({
+                        terminalShellMode: value,
+                      });
+                    }}
+                  >
+                    <SelectTrigger
+                      className="w-full shrink-0 sm:w-48"
+                      aria-label="Terminal shell mode"
+                    >
+                      <SelectValue>
+                        {TERMINAL_SHELL_MODE_LABELS[settings.terminalShellMode]}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup align="end">
+                      <SelectItem value="default">{TERMINAL_SHELL_MODE_LABELS.default}</SelectItem>
+                      <SelectItem value="detected">
+                        {TERMINAL_SHELL_MODE_LABELS.detected}
+                      </SelectItem>
+                      <SelectItem value="custom">{TERMINAL_SHELL_MODE_LABELS.custom}</SelectItem>
+                    </SelectPopup>
+                  </Select>
+                </div>
+
+                {settings.terminalShellMode === "detected" ? (
+                  <div className="space-y-2 rounded-lg border border-border bg-background px-3 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Detected shell</p>
+                      <p className="text-xs text-muted-foreground">
+                        Applies to newly opened or restarted terminals.
+                      </p>
+                    </div>
+                    <Select
+                      value={settings.terminalShellId}
+                      onValueChange={(value) =>
+                        updateSettings({
+                          terminalShellId: value ?? "",
+                        })
+                      }
+                    >
+                      <SelectTrigger
+                        className="w-full"
+                        aria-label="Detected terminal shell"
+                        disabled={availableTerminalShells.length === 0}
+                      >
+                        <SelectValue>
+                          {availableTerminalShells.find(
+                            (shell) => shell.id === settings.terminalShellId,
+                          )
+                            ? terminalShellOptionLabel(
+                                availableTerminalShells.find(
+                                  (shell) => shell.id === settings.terminalShellId,
+                                )!,
+                              )
+                            : availableTerminalShells.length === 0
+                              ? "No shells detected"
+                              : "Choose a detected shell"}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectPopup align="end">
+                        {availableTerminalShells.map((shell) => (
+                          <SelectItem key={shell.id} value={shell.id}>
+                            {terminalShellOptionLabel(shell)}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                    {availableTerminalShells.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        No shells were detected on this machine.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {settings.terminalShellMode === "custom" ? (
+                  <label htmlFor="terminal-custom-shell-path" className="block space-y-1">
+                    <span className="text-xs font-medium text-foreground">Custom shell path</span>
+                    <Input
+                      id="terminal-custom-shell-path"
+                      value={settings.terminalCustomShellPath}
+                      onChange={(event) =>
+                        updateSettings({
+                          terminalCustomShellPath: event.target.value,
+                        })
+                      }
+                      placeholder="C:\\Program Files\\PowerShell\\7\\pwsh.exe"
+                      spellCheck={false}
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      Enter the executable path only. Applies to newly opened or restarted
+                      terminals.
+                    </span>
+                    {settings.terminalCustomShellPath.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        Empty custom paths fall back to the system default shell.
+                      </p>
+                    ) : null}
+                  </label>
+                ) : null}
+
+                {settings.terminalShellMode !== defaults.terminalShellMode ||
+                settings.terminalShellId !== defaults.terminalShellId ||
+                settings.terminalCustomShellPath !== defaults.terminalCustomShellPath ? (
+                  <div className="flex justify-end">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() =>
+                        updateSettings({
+                          terminalShellMode: defaults.terminalShellMode,
+                          terminalShellId: defaults.terminalShellId,
+                          terminalCustomShellPath: defaults.terminalCustomShellPath,
+                        })
+                      }
+                    >
+                      Restore default
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             </section>
 

@@ -89,6 +89,53 @@ describe("TerminalOpenInput", () => {
       }),
     ).toBe(false);
   });
+
+  it("accepts detected shell selection", () => {
+    const parsed = decodeSync(TerminalOpenInput, {
+      threadId: "thread-1",
+      cwd: "/tmp/project",
+      shellType: "detected",
+      shellId: "pwsh.exe",
+    });
+    expect("shellType" in parsed && parsed.shellType).toBe("detected");
+    expect("shellId" in parsed && parsed.shellId).toBe("pwsh.exe");
+  });
+
+  it("accepts custom shell selection", () => {
+    const parsed = decodeSync(TerminalOpenInput, {
+      threadId: "thread-1",
+      cwd: "/tmp/project",
+      shellType: "custom",
+      shellPath: "/opt/homebrew/bin/fish",
+    });
+    expect("shellType" in parsed && parsed.shellType).toBe("custom");
+    expect("shellPath" in parsed && parsed.shellPath).toBe("/opt/homebrew/bin/fish");
+  });
+
+  it("rejects invalid shell selection combinations", () => {
+    expect(
+      decodes(TerminalOpenInput, {
+        threadId: "thread-1",
+        cwd: "/tmp/project",
+        shellType: "detected",
+      }),
+    ).toBe(false);
+    expect(
+      decodes(TerminalOpenInput, {
+        threadId: "thread-1",
+        cwd: "/tmp/project",
+        shellType: "custom",
+      }),
+    ).toBe(false);
+    expect(
+      decodes(TerminalOpenInput, {
+        threadId: "thread-1",
+        cwd: "/tmp/project",
+        shellType: "default",
+        shellId: "pwsh.exe",
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("TerminalWriteInput", () => {

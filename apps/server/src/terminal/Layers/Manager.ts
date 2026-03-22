@@ -11,6 +11,7 @@ import {
   TerminalRestartInput,
   TerminalWriteInput,
   type TerminalEvent,
+  type TerminalShellOption,
   type TerminalSessionSnapshot,
 } from "@t3tools/contracts";
 import { Effect, Encoding, Layer, Schema } from "effect";
@@ -19,6 +20,7 @@ import { createLogger } from "../../logger";
 import { PtyAdapter, PtyAdapterShape, type PtyExitEvent, type PtyProcess } from "../Services/PTY";
 import { runProcess } from "../../processRunner";
 import { ServerConfig } from "../../config";
+import { resolveAvailableTerminalShells } from "../shellDiscovery";
 import {
   ShellCandidate,
   TerminalError,
@@ -45,6 +47,21 @@ const decodeTerminalClearInput = Schema.decodeUnknownSync(TerminalClearInput);
 const decodeTerminalCloseInput = Schema.decodeUnknownSync(TerminalCloseInput);
 
 type TerminalSubprocessChecker = (terminalPid: number) => Promise<boolean>;
+type TerminalShellSelectionInput = {
+  shellType?: "default" | "detected" | "custom" | undefined;
+  shellId?: string | undefined;
+  shellPath?: string | undefined;
+};
+
+function shellSelectionSignature(input: TerminalShellSelectionInput): string {
+  if (input.shellType === "detected") {
+    return `detected:${input.shellId?.trim() ?? ""}`;
+  }
+  if (input.shellType === "custom") {
+    return `custom:${input.shellPath?.trim() ?? ""}`;
+  }
+  return "default";
+}
 
 function defaultShellResolver(): string {
   if (process.platform === "win32") {
@@ -65,6 +82,15 @@ function normalizeShellCommand(value: string | undefined): string | null {
   const firstToken = trimmed.split(/\s+/g)[0]?.trim();
   if (!firstToken) return null;
   return firstToken.replace(/^['"]|['"]$/g, "");
+}
+
+function isShellPathLike(value: string): boolean {
+  return (
+    value.includes("/") ||
+    value.includes("\\") ||
+    /^[a-zA-Z]:/.test(value) ||
+    value.startsWith("\\\\")
+  );
 }
 
 function shellCandidateFromCommand(command: string | null): ShellCandidate | null {
@@ -116,6 +142,56 @@ function resolveShellCandidates(shellResolver: () => string): ShellCandidate[] {
     shellCandidateFromCommand("bash"),
     shellCandidateFromCommand("sh"),
   ]);
+}
+
+function resolveRequestedShellCandidate(
+  input: TerminalShellSelectionInput,
+  availableShells: ReadonlyArray<TerminalShellOption>,
+): ShellCandidate | null {
+  if (input.shellType === undefined || input.shellType === "default") {
+    return null;
+  }
+  if (input.shellType === "detected") {
+    const shellId = input.shellId?.trim();
+    if (!shellId) {
+      throw new Error("Detected terminal shell selection is missing a shell id.");
+    }
+    const selected =
+      availableShells.find((shell) => shell.id === shellId) ??
+      availableShells.find(
+        (shell) => path.basename(shell.path).toLowerCase() === shellId.toLowerCase(),
+      );
+    if (!selected) {
+      throw new Error(`Selected terminal shell is no longer available: ${shellId}`);
+    }
+    return shellCandidateFromCommand(selected.path);
+  }
+
+  const shellPath = input.shellPath?.trim();
+  if (!shellPath) {
+    throw new Error("Custom terminal shell path is empty.");
+  }
+  if (!isShellPathLike(shellPath)) {
+    const selected = availableShells.find(
+      (shell) => path.basename(shell.path).toLowerCase() === shellPath.toLowerCase(),
+    );
+    if (selected) {
+      return shellCandidateFromCommand(selected.path);
+    }
+    throw new Error(
+      `Custom terminal shell path must be an executable path on disk. Received: ${shellPath}`,
+    );
+  }
+  return shellCandidateFromCommand(shellPath);
+}
+
+function resolveShellSpawnPlan(
+  input: TerminalShellSelectionInput,
+  shellResolver: () => string,
+  availableShells: ReadonlyArray<TerminalShellOption>,
+): ShellCandidate[] {
+  const requested = resolveRequestedShellCandidate(input, availableShells);
+  return uniqueShellCandidates([requested, ...resolveShellCandidates(shellResolver)]);
 }
 
 function isRetryableShellSpawnError(error: unknown): boolean {
@@ -317,6 +393,7 @@ interface TerminalManagerOptions {
   historyLineLimit?: number;
   ptyAdapter: PtyAdapterShape;
   shellResolver?: () => string;
+  availableShellsResolver?: () => ReadonlyArray<TerminalShellOption>;
   subprocessChecker?: TerminalSubprocessChecker;
   subprocessPollIntervalMs?: number;
   processKillGraceMs?: number;
@@ -329,6 +406,7 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
   private readonly historyLineLimit: number;
   private readonly ptyAdapter: PtyAdapterShape;
   private readonly shellResolver: () => string;
+  private readonly availableShellsResolver: () => ReadonlyArray<TerminalShellOption>;
   private readonly persistQueues = new Map<string, Promise<void>>();
   private readonly persistTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly pendingPersistHistory = new Map<string, string>();
@@ -349,6 +427,8 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
     this.historyLineLimit = options.historyLineLimit ?? DEFAULT_HISTORY_LINE_LIMIT;
     this.ptyAdapter = options.ptyAdapter;
     this.shellResolver = options.shellResolver ?? defaultShellResolver;
+    this.availableShellsResolver =
+      options.availableShellsResolver ?? (() => resolveAvailableTerminalShells());
     this.persistDebounceMs = DEFAULT_PERSIST_DEBOUNCE_MS;
     this.subprocessChecker = options.subprocessChecker ?? defaultSubprocessChecker;
     this.subprocessPollIntervalMs =
@@ -375,6 +455,7 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
           threadId: input.threadId,
           terminalId: input.terminalId,
           cwd: input.cwd,
+          shellSelectionSignature: shellSelectionSignature(input),
           status: "starting",
           pid: null,
           history,
@@ -399,16 +480,23 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
       const currentRuntimeEnv = existing.runtimeEnv;
       const targetCols = input.cols ?? existing.cols;
       const targetRows = input.rows ?? existing.rows;
+      const nextShellSelectionSignature = shellSelectionSignature(input);
       const runtimeEnvChanged =
         JSON.stringify(currentRuntimeEnv) !== JSON.stringify(nextRuntimeEnv);
 
-      if (existing.cwd !== input.cwd || runtimeEnvChanged) {
+      if (
+        existing.cwd !== input.cwd ||
+        runtimeEnvChanged ||
+        existing.shellSelectionSignature !== nextShellSelectionSignature
+      ) {
         this.stopProcess(existing);
         existing.cwd = input.cwd;
+        existing.shellSelectionSignature = nextShellSelectionSignature;
         existing.runtimeEnv = nextRuntimeEnv;
         existing.history = "";
         await this.persistHistory(existing.threadId, existing.terminalId, existing.history);
       } else if (existing.status === "exited" || existing.status === "error") {
+        existing.shellSelectionSignature = nextShellSelectionSignature;
         existing.runtimeEnv = nextRuntimeEnv;
         existing.history = "";
         await this.persistHistory(existing.threadId, existing.terminalId, existing.history);
@@ -494,6 +582,7 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
           threadId: input.threadId,
           terminalId: input.terminalId,
           cwd: input.cwd,
+          shellSelectionSignature: shellSelectionSignature(input),
           status: "starting",
           pid: null,
           history: "",
@@ -513,6 +602,7 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
       } else {
         this.stopProcess(session);
         session.cwd = input.cwd;
+        session.shellSelectionSignature = shellSelectionSignature(input);
         session.runtimeEnv = normalizedRuntimeEnv(input.env);
       }
 
@@ -591,9 +681,17 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
     let ptyProcess: PtyProcess | null = null;
     let startedShell: string | null = null;
     try {
-      const shellCandidates = resolveShellCandidates(this.shellResolver);
+      const shellCandidates = resolveShellSpawnPlan(
+        input,
+        this.shellResolver,
+        this.availableShellsResolver(),
+      );
       const terminalEnv = createTerminalSpawnEnv(process.env, session.runtimeEnv);
       let lastSpawnError: unknown = null;
+      const requestedShellLabel =
+        shellCandidates[0] && input.shellType && input.shellType !== "default"
+          ? formatShellCandidate(shellCandidates[0])
+          : null;
 
       const spawnWithCandidate = (candidate: ShellCandidate) =>
         Effect.runPromise(
@@ -665,6 +763,27 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
         createdAt: new Date().toISOString(),
         snapshot: this.snapshot(session),
       });
+      if (
+        requestedShellLabel &&
+        startedShell &&
+        requestedShellLabel !== startedShell &&
+        lastSpawnError !== null
+      ) {
+        this.emitEvent({
+          type: "error",
+          threadId: session.threadId,
+          terminalId: session.terminalId,
+          createdAt: new Date().toISOString(),
+          message: `Selected shell '${requestedShellLabel}' failed to start. Using '${startedShell}' instead.`,
+        });
+        this.logger.warn("terminal shell fallback engaged", {
+          threadId: session.threadId,
+          terminalId: session.terminalId,
+          requestedShell: requestedShellLabel,
+          startedShell,
+          error: lastSpawnError instanceof Error ? lastSpawnError.message : String(lastSpawnError),
+        });
+      }
     } catch (error) {
       if (ptyProcess) {
         this.killProcessWithEscalation(ptyProcess, session.threadId, session.terminalId);
@@ -763,6 +882,21 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
     terminalId: string,
   ): void {
     this.clearKillEscalationTimer(process);
+    if (globalThis.process.platform === "win32") {
+      try {
+        process.kill();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn("failed to kill terminal process", {
+          threadId,
+          terminalId,
+          signal: "default",
+          error: message,
+        });
+      }
+      return;
+    }
+
     try {
       process.kill("SIGTERM");
     } catch (error) {

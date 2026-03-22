@@ -18,6 +18,10 @@ const TerminalEnvValueSchema = Schema.String.check(Schema.isMaxLength(8_192));
 const TerminalEnvSchema = Schema.Record(TerminalEnvKeySchema, TerminalEnvValueSchema).check(
   Schema.isMaxProperties(128),
 );
+const TerminalShellType = Schema.Literals(["default", "detected", "custom"]);
+export type TerminalShellType = typeof TerminalShellType.Type;
+const TerminalShellIdSchema = TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(128));
+const TerminalShellPathSchema = TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(4096));
 
 const TerminalIdWithDefaultSchema = TerminalIdSchema.pipe(
   Schema.withDecodingDefault(() => DEFAULT_TERMINAL_ID),
@@ -34,13 +38,52 @@ const TerminalSessionInput = Schema.Struct({
 });
 export type TerminalSessionInput = Schema.Codec.Encoded<typeof TerminalSessionInput>;
 
-export const TerminalOpenInput = Schema.Struct({
+const TerminalOpenInputBaseFields = {
   ...TerminalSessionInput.fields,
   cwd: TrimmedNonEmptyStringSchema,
   cols: Schema.optional(TerminalColsSchema),
   rows: Schema.optional(TerminalRowsSchema),
   env: Schema.optional(TerminalEnvSchema),
-});
+  shellType: Schema.optional(Schema.Undefined),
+  shellId: Schema.optional(Schema.Undefined),
+  shellPath: Schema.optional(Schema.Undefined),
+};
+
+export const TerminalOpenInputMembers = [
+  Schema.Struct({
+    ...TerminalSessionInput.fields,
+    cwd: TrimmedNonEmptyStringSchema,
+    cols: Schema.optional(TerminalColsSchema),
+    rows: Schema.optional(TerminalRowsSchema),
+    env: Schema.optional(TerminalEnvSchema),
+    shellType: Schema.Literal("detected"),
+    shellId: TerminalShellIdSchema,
+    shellPath: Schema.optional(Schema.Undefined),
+  }),
+  Schema.Struct({
+    ...TerminalSessionInput.fields,
+    cwd: TrimmedNonEmptyStringSchema,
+    cols: Schema.optional(TerminalColsSchema),
+    rows: Schema.optional(TerminalRowsSchema),
+    env: Schema.optional(TerminalEnvSchema),
+    shellType: Schema.Literal("custom"),
+    shellId: Schema.optional(Schema.Undefined),
+    shellPath: TerminalShellPathSchema,
+  }),
+  Schema.Struct({
+    ...TerminalSessionInput.fields,
+    cwd: TrimmedNonEmptyStringSchema,
+    cols: Schema.optional(TerminalColsSchema),
+    rows: Schema.optional(TerminalRowsSchema),
+    env: Schema.optional(TerminalEnvSchema),
+    shellType: Schema.Literal("default"),
+    shellId: Schema.optional(Schema.Undefined),
+    shellPath: Schema.optional(Schema.Undefined),
+  }),
+  Schema.Struct(TerminalOpenInputBaseFields),
+];
+
+export const TerminalOpenInput = Schema.Union(TerminalOpenInputMembers);
 export type TerminalOpenInput = Schema.Codec.Encoded<typeof TerminalOpenInput>;
 
 export const TerminalWriteInput = Schema.Struct({
@@ -59,13 +102,52 @@ export type TerminalResizeInput = Schema.Codec.Encoded<typeof TerminalResizeInpu
 export const TerminalClearInput = TerminalSessionInput;
 export type TerminalClearInput = Schema.Codec.Encoded<typeof TerminalClearInput>;
 
-export const TerminalRestartInput = Schema.Struct({
+const TerminalRestartInputBaseFields = {
   ...TerminalSessionInput.fields,
   cwd: TrimmedNonEmptyStringSchema,
   cols: TerminalColsSchema,
   rows: TerminalRowsSchema,
   env: Schema.optional(TerminalEnvSchema),
-});
+  shellType: Schema.optional(Schema.Undefined),
+  shellId: Schema.optional(Schema.Undefined),
+  shellPath: Schema.optional(Schema.Undefined),
+};
+
+export const TerminalRestartInputMembers = [
+  Schema.Struct({
+    ...TerminalSessionInput.fields,
+    cwd: TrimmedNonEmptyStringSchema,
+    cols: TerminalColsSchema,
+    rows: TerminalRowsSchema,
+    env: Schema.optional(TerminalEnvSchema),
+    shellType: Schema.Literal("detected"),
+    shellId: TerminalShellIdSchema,
+    shellPath: Schema.optional(Schema.Undefined),
+  }),
+  Schema.Struct({
+    ...TerminalSessionInput.fields,
+    cwd: TrimmedNonEmptyStringSchema,
+    cols: TerminalColsSchema,
+    rows: TerminalRowsSchema,
+    env: Schema.optional(TerminalEnvSchema),
+    shellType: Schema.Literal("custom"),
+    shellId: Schema.optional(Schema.Undefined),
+    shellPath: TerminalShellPathSchema,
+  }),
+  Schema.Struct({
+    ...TerminalSessionInput.fields,
+    cwd: TrimmedNonEmptyStringSchema,
+    cols: TerminalColsSchema,
+    rows: TerminalRowsSchema,
+    env: Schema.optional(TerminalEnvSchema),
+    shellType: Schema.Literal("default"),
+    shellId: Schema.optional(Schema.Undefined),
+    shellPath: Schema.optional(Schema.Undefined),
+  }),
+  Schema.Struct(TerminalRestartInputBaseFields),
+];
+
+export const TerminalRestartInput = Schema.Union(TerminalRestartInputMembers);
 export type TerminalRestartInput = Schema.Codec.Encoded<typeof TerminalRestartInput>;
 
 export const TerminalCloseInput = Schema.Struct({

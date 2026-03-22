@@ -29,6 +29,7 @@ export interface TerminalSessionState {
   threadId: string;
   terminalId: string;
   cwd: string;
+  shellSelectionSignature: string;
   status: TerminalSessionStatus;
   pid: number | null;
   history: string;
@@ -49,10 +50,17 @@ export interface ShellCandidate {
   args?: string[];
 }
 
-export interface TerminalStartInput extends TerminalOpenInput {
+export type TerminalStartInput = {
+  threadId: string;
+  terminalId: string;
+  cwd: string;
   cols: number;
   rows: number;
-}
+  env?: Record<string, string> | undefined;
+  shellType?: "default" | "detected" | "custom" | undefined;
+  shellId?: string | undefined;
+  shellPath?: string | undefined;
+};
 
 /**
  * TerminalManagerShape - Service API for terminal session lifecycle operations.

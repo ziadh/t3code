@@ -28,9 +28,9 @@ import {
   TerminalClearInput,
   TerminalCloseInput,
   TerminalEvent,
-  TerminalOpenInput,
+  TerminalOpenInputMembers,
   TerminalResizeInput,
-  TerminalRestartInput,
+  TerminalRestartInputMembers,
   TerminalWriteInput,
 } from "./terminal";
 import { KeybindingRule } from "./keybindings";
@@ -97,6 +97,60 @@ const tagRequestBody = <const Tag extends string, const Fields extends Schema.St
     { unsafePreserveChecks: true },
   );
 
+const TaggedTerminalOpenInput = Schema.Union([
+  TerminalOpenInputMembers[0]!.mapFields(
+    Struct.assign({ _tag: Schema.tag(WS_METHODS.terminalOpen) }),
+    {
+      unsafePreserveChecks: true,
+    },
+  ),
+  TerminalOpenInputMembers[1]!.mapFields(
+    Struct.assign({ _tag: Schema.tag(WS_METHODS.terminalOpen) }),
+    {
+      unsafePreserveChecks: true,
+    },
+  ),
+  TerminalOpenInputMembers[2]!.mapFields(
+    Struct.assign({ _tag: Schema.tag(WS_METHODS.terminalOpen) }),
+    {
+      unsafePreserveChecks: true,
+    },
+  ),
+  TerminalOpenInputMembers[3]!.mapFields(
+    Struct.assign({ _tag: Schema.tag(WS_METHODS.terminalOpen) }),
+    {
+      unsafePreserveChecks: true,
+    },
+  ),
+]);
+
+const TaggedTerminalRestartInput = Schema.Union([
+  TerminalRestartInputMembers[0]!.mapFields(
+    Struct.assign({ _tag: Schema.tag(WS_METHODS.terminalRestart) }),
+    {
+      unsafePreserveChecks: true,
+    },
+  ),
+  TerminalRestartInputMembers[1]!.mapFields(
+    Struct.assign({ _tag: Schema.tag(WS_METHODS.terminalRestart) }),
+    {
+      unsafePreserveChecks: true,
+    },
+  ),
+  TerminalRestartInputMembers[2]!.mapFields(
+    Struct.assign({ _tag: Schema.tag(WS_METHODS.terminalRestart) }),
+    {
+      unsafePreserveChecks: true,
+    },
+  ),
+  TerminalRestartInputMembers[3]!.mapFields(
+    Struct.assign({ _tag: Schema.tag(WS_METHODS.terminalRestart) }),
+    {
+      unsafePreserveChecks: true,
+    },
+  ),
+]);
+
 const WebSocketRequestBody = Schema.Union([
   // Orchestration methods
   tagRequestBody(
@@ -129,11 +183,11 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.gitPreparePullRequestThread, GitPreparePullRequestThreadInput),
 
   // Terminal methods
-  tagRequestBody(WS_METHODS.terminalOpen, TerminalOpenInput),
+  TaggedTerminalOpenInput,
   tagRequestBody(WS_METHODS.terminalWrite, TerminalWriteInput),
   tagRequestBody(WS_METHODS.terminalResize, TerminalResizeInput),
   tagRequestBody(WS_METHODS.terminalClear, TerminalClearInput),
-  tagRequestBody(WS_METHODS.terminalRestart, TerminalRestartInput),
+  TaggedTerminalRestartInput,
   tagRequestBody(WS_METHODS.terminalClose, TerminalCloseInput),
 
   // Server meta
